@@ -1,0 +1,313 @@
+---
+title: "武汉二手房数据分析"
+author: "郑红娟2023281051034"
+date: "`r Sys.Date()`"
+header-includes:
+  - \usepackage{ctex}
+output:
+  pdf_document:
+    includes:
+      keep_tex: yes
+    latex_engine: xelatex
+  word_document: default
+---    
+  
+```{r setup, include = FALSE,echo = FALSE}
+knitr::opts_chunk$set(echo = FALSE,error = FALSE, warning = FALSE, message = FALSE,
+                      out.width = "100%", split = FALSE, fig.align = "center")
+#load library
+library(tidyverse)
+library(lubridate)
+library(scales)
+library(plotly)
+library(patchwork)
+library(ggrepel)
+library(corrgram)
+library(corrplot)
+```
+
+# 你的主要发现
+
+1. 武汉二手房房屋总价总价平均值为155.9万元，总价中位数为137.0万元，总价偏态明显，少数总价高的房源拉高了总体平均水平。单价平均值为1.51万元/㎡，单价中位数为1.44万元/㎡，平均值与中位数基本相等，均价分布比较均匀。
+
+2. 在所给的房屋相关字段中，户型中“2室3厅”，朝“南”、“精装”的二手房都超过半数，是二手房中普遍属性。
+  
+3. 二手房所在行政区对房价影响比较大，其次是户型。武昌区的单价和均价均为最高且极值较多，东湖高新区作为近年新兴区域，价格紧随其后。汉口老城区CBD区域，价格稳居前三，符合普遍认知。
+    
+
+# 数据介绍
+
+本报告**链家**数据获取方式如下：
+    
+报告人在2023年9月12日获取了[链家武汉二手房网站](https://wh.lianjia.com/ershoufang/)数据。
+    
+- 链家二手房网站默认显示100页，每页30套房产，因此本数据包括3000套房产信息；
+    
+- 数据包括了页面可见部分的文本信息，具体字段及说明见作业说明。
+    
+```{r}
+# 载入数据和预处理
+
+data<- read_csv(file = "E:/code/1st_assignment_eda-Sojuan66/data/2023-09-12_cleaned.csv ")
+# EDA ---------------------------------------------------------------------
+
+## 如下语句可以解决画图中的中文显示问题，当然你可以用showtext包来解决
+
+theme_set(theme(text = element_text(family="GB1",size = 10))) #这里family设置成你系统中的中文字体名。
+
+# 做一些数据预处理
+
+data<- read_csv(file = "E:/code/1st_assignment_eda-Sojuan66/data/2023-09-12_cleaned.csv ")
+
+# 做一些数据预处理
+
+#将户型合并
+data <- data.frame(data)
+data$price_sqm =data$price_sqm/10000 
+s1 <- data %>% mutate(roomtype = paste(data$livingrooms,"室",data$bedrooms,"厅",sep=""))
+
+#合并近地铁的观测值
+s1$near_subway<-gsub('近地看|珞狮南|VR看装修|太子湖1号','近地铁',s1$near_subway)
+s1$near_subway<-gsub('VR看装修','其他',s1$near_subway)
+
+
+#将片区规划到所属行政区
+property_region_mapping <- list(
+  "汉口" = c("百步亭",	"大智路",	"堤角",	"二七",	"后湖",	"三阳路",	"台北香港路",	"育才花桥",	"黄埔永清",	"唐家墩",	"塔子湖",	"国际百纳"),
+  "江汉" = c("CBD西北湖",	"长丰常码头",	"长港路",	"江汉其他",	"前进江汉",	"武广万松园",	"新华路万达",	"杨汊湖",	"常青路"),
+  "硚口"= c("宝丰崇仁",	"古田",	"汉正街",	"集贤",	"宗关"),
+  "东西湖"= c("常青花园",	"东西湖其它",	"将军路",	"金银湖",	"吴家山"),
+  "武昌"=  c("楚河汉街",	"东湖东亭",	"首义",	"沙湖",	"水果湖",	"积玉桥",	"武昌火车站",	"中南丁字桥",	"杨园",	"中北路",	"徐东"),
+  "洪山"= c("白沙洲",	"街道口",	"光谷广场",	"洪山其它",	"老南湖",	"民族大道",	"南湖沃尔玛",	"团结大道",	"新南湖",	"黄家湖",	"虎泉杨家湾",	"卓刀泉",	"珞狮南路"),
+  "汉阳"= c("七里庙",	"四新",	"王家湾",	"钟家村"),
+  "东湖高新"=  c("光谷东",	"华科大",	"三环南",	"光谷南",	"关山大道",	"关西长职",	"金融港"),
+  "青山"= c("青山"),
+  "江夏"= c("藏龙岛",	"江夏其它",	"庙山",	"文化大道",	"纸坊"),
+  "蔡甸"= c("蔡甸城区",	"后官湖",	"中法生态城"),
+  "黄陂"= c("汉口北",	"横店街",	"盘龙城",	"前川",	"武湖",	"黄陂其它"),
+  "新洲"=  c("新洲其它","阳逻"),
+  "沌口"= c("蔡甸其它","沌口"),
+  "汉南"= c("汉南其它","汉南")
+)
+
+matched_regions <- sapply(s1$property_region, function(data) {
+  for (region in names(property_region_mapping)) {
+    if (data %in% property_region_mapping[[region]]) {
+      return(region)
+    }
+  }
+  return("其他区")
+})
+
+lj <- mutate(s1,matched_regions)
+
+#把字符型变成factor
+lj[] <- lapply(lj,function(x)
+  if(is.character(x)) as.factor(x) 
+  else x)
+```
+
+# 数据概览
+
+各变量的简短信息：
+```{r}
+glimpse(lj)
+```
+
+各变量的简短统计：
+```{r}
+summary(lj)
+#最受关注、及总价、单价最高的房子分布：
+view(head(lj[order(-lj$followers),]))
+view(head(lj[order(-lj$price_ttl),]))
+view(head(lj[order(-lj$price_sqm),]))
+```
+
+可以看到：
+
+- 直观结论1
+
+   数据集中包含武汉的3000套二手房的信息，包括“小区名字”、所处区域、房屋总价、房屋单价等13个字段信息。武汉二手房房屋总价总价平均值为155.9万元，总价中位数为137.0万元，说明少数总价高的房源拉高了总体平均水平。单价平均值为1.51万元/㎡，单价中位数为1.44万元/㎡，平均值与中位数基本相等，说明房价升高趋势比较线性。
+
+- 直观结论2
+
+1. 最关注的小区：十里和府，位于七里庙，其次是阜华领秀中南-中南路，光谷广场的米兰印象。
+2. 小区总价最高的:万科高尔夫城市花园，1380万，是万科在武汉唯一的别墅区。
+3. 小区均价最高的：中商宿舍，复地东湖国际小区，因对口武昌武汉小学，意料之中。
+
+
+# 探索性分析
+```{r}
+#二手房总价和单价分布：
+p1 <- ggplot(lj,aes(price_ttl))+
+  geom_histogram(bins=30,colour = "black",fill="lightblue")+
+  labs(x='房屋总价', y="房屋数量", title="二手房总价分布")+theme(plot.title=element_text(hjust=0.5))
+
+p2 <- ggplot(lj,mapping = aes(x =price_sqm)) +
+  geom_histogram(aes(x =price_sqm, y = ..density..),bins = 30,colour = "black",fill="lightblue") +
+  geom_density(aes(x =price_sqm, y = ..density..),color = "orange",linewidth=1)+
+  labs(x='房屋单价（单位：万/平方米）',y="房屋数量",title="二手房单价分布")+theme(plot.title=element_text(hjust=0.5))
+
+p1/p2
+
+#二手房均价的正态分布：
+x<-lj$price_sqm
+y <- x[order(x)]
+breaks = 20
+hist(x,main = "hist of price_sqm", xlim = c(0,5),xpd = T,freq = FALSE, breaks = seq(min(x),max(x),length = breaks))
+lines(density(x), col = 'red', lty = 1, lwd = 2)
+lines(y, dnorm(y, mean(y), sd(y)),col = 'blue',lty = 2, lwd = 2.5)
+legend('topright',
+       legend = c('核密度曲线','正态分布曲线'),
+       col = c('red','blue'), lty = c(1,2),
+       lwd = c(2,2.5), bty = 'n')
+
+```
+## “房价”的数值描述与图形
+
+发现：
+
+  对二手房房屋总价做直方图，整体呈拖尾型，数据分布整体右偏非常明显，集中分布在100万~200万之间，符合大众对房价的认知。二手房房屋均价偏态比总价好，观测数据的分布与正态分布有一定差距，进一步进行正态检验分析，发现两者密度曲线比较相似。
+
+
+```{r}
+#对各字符型变量做统计型展示：
+type <- c('1室5厅','2室6厅',' 3室3厅','1室1厅','3室7厅','4室7厅')
+lj$roomtype <- ifelse(lj$roomtype %in% type,as.character('其他'),as.character(lj$roomtype))
+
+#二手房户型分布：
+p3 <- ggplot(lj,aes(roomtype))+geom_bar()+
+labs(x='房屋户型', y="房屋数量", title="二手房户型分布")+theme(plot.title=element_text(hjust=0.5))
+
+#二手房朝向分布：
+p4 <- ggplot(lj,aes(directions1))+geom_bar(width=0.5)+
+  labs(x='房屋朝向', y="房屋数量", title="二手房朝向分布")+theme(plot.title=element_text(hjust=0.5))
+
+#二手房楼层分布：
+p5 <- ggplot(lj,aes(property_height))+geom_bar(width=0.5)+
+  labs(x='房屋楼层', y="房屋数量", title="二手房楼层分布")+theme(plot.title=element_text(hjust=0.5))
+
+#二手房装修分布：
+p6 <- ggplot(lj,aes(decoration))+geom_bar(width=0.5)+
+  labs(x='房屋装修', y="房屋数量", title="二手房装修分布")+theme(plot.title=element_text(hjust=0.5))
+
+p3+p4
+p5+p6
+```
+## “房屋属性”的数值描述与图形
+
+发现：
+
+- 房屋属性中户型、朝向、装修都呈严重的偏态分布，户型中“2室3厅”，朝“南”、“精装”的二手房都超过半数，符合普遍认知。
+
+```{r}
+#对各字符型变量和房屋均价的箱线图分布：
+p7 <- lj %>% 
+  ggplot(aes(x = roomtype, y=price_ttl,fill=roomtype))+geom_boxplot()+
+  labs(x='户型', y="房屋总价", title="二手房户型-总价分布")+theme(plot.title=element_text(hjust=0.5))
+
+p8 <- lj %>% 
+  ggplot(aes(x = decoration, y=price_ttl,fill=decoration))+geom_boxplot()+
+  labs(x='装修情况', y="房屋总价", title="二手房装修-总价分布")+theme(plot.title=element_text(hjust=0.5))
+
+p9 <- lj %>% 
+  ggplot(aes(x = directions1, y=price_ttl,fill=directions1))+geom_boxplot()+
+  labs(x='朝向', y="房屋总价", title="二手房朝向-总价分布")+theme(plot.title=element_text(hjust=0.5))
+
+p10 <- lj %>% 
+  ggplot(aes(x = near_subway, y=price_ttl,fill=near_subway))+geom_boxplot()+
+  labs(x='靠近地铁', y="房屋总价", title="二手房地铁-总价分布")+theme(plot.title=element_text(hjust=0.5))
+
+p7/p8
+p9/p10
+```
+
+-对房屋属性和房屋总价做箱线图分析，四个变量中发现户型对房屋总价的影响最大。
+
+
+## 探索问题1:房屋所属行政区域的房价分布：
+
+```{r}
+#观察地区和房价分布的箱线图
+p11 <- lj %>% filter(price_ttl<800) %>%
+ggplot(aes(x = matched_regions, y=price_ttl,fill=matched_regions))+geom_boxplot()+
+  labs(x='行政区', y="房屋总价", title="二手房区域房屋总价分布")+theme(plot.title=element_text(hjust=0.5))+
+  guides(fill = "none")
+
+p12 <- lj %>%ggplot(aes(x = matched_regions, y= price_sqm,fill=matched_regions))+geom_boxplot()+
+  labs(x='行政区', y="房屋单价", title="二手房区域房屋单价分布")+theme(plot.title=element_text(hjust=0.5))
+
+p11/p12
+
+```
+发现：
+
+  对房价所属片区进行行政区映射后，发现房屋所在不同行政区，房屋的总价和均价的中心值都有较大差别，远城区的房屋价格都比较稳定。所属行政区的房屋单价中，武昌区的单价和均价均为最高且极值较多，东湖高新区作为近年新兴区域，价格紧随其后。汉口老城区CBD区域，价格稳居前三，符合普遍认知。
+
+## 探索问题2:靠近地铁是否对房价会产生影响：
+```{r}
+subway  <- lj%>% group_by(matched_regions,near_subway)%>%
+  summarise(
+    mean1 = mean(price_ttl),
+    mean2 = mean(price_sqm)
+  )
+
+p13 <- ggplot(subway,mapping = aes(x = matched_regions, y = mean1,fill = near_subway )) +
+  geom_bar(stat = "identity", position = "dodge")+
+  labs(x='行政区', y="房屋总价均值", title="二手房区域房屋总价均值")+theme(plot.title=element_text(hjust=0.5))
+
+p14 <- ggplot(subway,mapping = aes(x = matched_regions, y = mean2,fill = near_subway )) +
+  geom_bar(stat = "identity", position = "dodge")+
+  labs(x='行政区', y="房屋单价均值", title="二手房区域房屋房屋单价均值")+theme(plot.title=element_text(hjust=0.5))
+
+p13/p14
+```
+
+发现：
+
+   在1.2中对房屋属性中靠近地铁和未靠近地铁两组数据没有明显区别，猜想是受黄陂、蔡甸等远城区实际中没有地铁到达的影响。对房屋靠近地铁对房价进一步进行分析，按照行政区进行分组后，虽然新洲、蔡甸等地区近地铁和未靠近地铁两组房价数据没有区别，但在武昌、汉口区域两组数据差值也没有相等差距，故无法得出靠近地铁房价比较高的结论。
+
+## 探索问题3:对房屋面积对房价分布进行检验：
+```{r}
+#房屋面积的分布图
+p16 <- lj %>% filter(building_area<400) %>%
+  ggplot(lj,mapping = aes(x = building_area))+
+  geom_histogram(binwidth = 30,colour = "black",fill="lightblue")+
+  scale_x_continuous(breaks = c(50,90,120,200))+
+  labs(x='建筑面积', y="房屋数量", title="二手房建筑面积分布")+theme(plot.title=element_text(hjust=0.5))
+p16
+
+#房屋面积和总价的分布图
+p17 <- lj %>% filter(building_area<400) %>%
+  ggplot(aes(building_area,price_ttl))+geom_point()+
+  labs(x='建筑面积', y="房屋总价", title="二手房建筑面积-总价分布")+theme(plot.title=element_text(hjust=0.5))
+
+# 对总价取对数
+lj$price_ttl_lg  <- log(lj$price_ttl)
+p18 <- lj %>% filter(building_area<400) %>%
+  ggplot(aes(building_area,price_ttl_lg))+geom_point()+
+  geom_smooth(method  = "lm",level=0.95,formula=y~x)+
+  labs(x='建筑面积', y="房屋总价(取对数后）",title="二手房建筑面积-总价分布")+theme(plot.title=element_text(hjust=0.5))
+
+p17+p18
+
+```
+
+
+发现：
+
+- 房屋面积为连续性变量，对房屋面积进行分组统计，发现在90-120平方米的房屋最多。
+- 做房屋面积和总价的散点图，散点图呈现左密集右疏散，对总价取对数后，设置95%的置信区间，进行线性拟合，也是集中在90-120平方米区间中。
+
+---
+
+# 发现总结
+
+1. 本次作业中对房屋属性的相关性进行检验时，发现数值型变量较少，只有建筑面积一个连续性变量进行分布分析，而且两次取对数后相关性系数并没有太大变化（0.68，0.63，0.68），而且分布也没有太大改变，有点黔驴技穷。
+
+2. 其他字符型变量在后面工作中可以考虑进行数值标准化进行进一步分析。
+
+3. 对于二手房关注房价的相关性影响，符合大众普遍认知是区域、面积、学区房这些因素，但是做出来的图不一定符合自我常识，所以结论根据观测值做出定性的结果有一点怀疑。
+
+
+
